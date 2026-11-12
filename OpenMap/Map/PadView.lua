@@ -43,6 +43,7 @@ local GROUP_EVERY = 0.5         -- ... and of your party's and raid's dots (Nav.
 local REACH = 12                -- px from the cursor that an icon counts as under it (Gamepad.lua's)
 local HOVER_EVERY = 0.05        -- seconds between looks at what's under the cursor
 local QUESTIE_LIB = "HereBeDragonsQuestie-Pins-2.0"
+local QUESTIE_MODULE = "Questie:HBDPins"   -- (Questie's copy since 12.8: its own module, not LibStub's; Extras.lua)
 local QUESTIE_FROM = 2.5        -- the zoom Questie's icons come in at (a continent's worth of quests is too many)
 local QUESTIE_EVERY = 0.5       -- seconds between looks at which icons Questie has on the map
 local QUESTIE_CLUSTER = 20      -- view px round a hovered Questie icon whose quests its tooltip lists too
@@ -310,9 +311,11 @@ end
 
 local SHOW_CONTINENT = 2        -- HBD_PINS_WORLDMAP_SHOW_CONTINENT: an icon its addon shows from a continent's map
 
--- every copy of the pins library loaded: name -> library
+-- every copy of the pins library loaded, and Questie's module: name -> library
 local function PinLibs()
 	local out = {}
+	local q = mod.QuestiePins and mod.QuestiePins()
+	if q then out[QUESTIE_MODULE] = q end
 	if not LibStub then return out end
 	if LibStub.IterateLibraries then
 		for name, lib in LibStub:IterateLibraries() do
@@ -362,7 +365,7 @@ local function ScanQuestie()
 	wipe(questieAt)
 	for name, lib in pairs(PinLibs()) do
 		local pins = lib.worldmapPins
-		local questie = name == QUESTIE_LIB
+		local questie = name == QUESTIE_LIB or name == QUESTIE_MODULE
 		if type(pins) == "table" then
 			for icon, data in pairs(pins) do
 				if type(icon) == "table" and type(data) == "table" and icon.SetPoint and not (questie and icon.type == "line") then

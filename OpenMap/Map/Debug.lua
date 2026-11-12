@@ -56,7 +56,10 @@ local function Pins()
 		total = total + n
 		if n > topN then top, topN = template, n end
 	end
-	if top then top = top:gsub("HereBeDragonsPinsTemplateQuestie", "Questie"):gsub("PinTemplate$", ""):gsub("Template$", "") end
+	if top then
+		top = top:gsub("HereBeDragonsPinsTemplateQuestie", "Questie"):gsub("^HereBeDragonsPins%-(.+)%-WorldMapPin$", "%1")
+			:gsub("PinTemplate$", ""):gsub("Template$", "")
+	end
 	return total, top, topN
 end
 

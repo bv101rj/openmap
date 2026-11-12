@@ -456,18 +456,35 @@ local questie = { placed = 0, ours = 0, moved = 0 }   -- for /openmap status: si
 -- its own): a pin placed from a map point (`uiMapID`, `mapX`, `mapY`: AddWorldMapIconMap) goes where it
 -- belongs on the stitched map, a neighbouring zone's too. Questie's copy has its own pin template and
 -- frame levels; the others use HereBeDragons' own template.
+-- Questie's copy since Questie 12.8 is no LibStub library but one of Questie's own modules (QuestieLoader's
+-- HBDPins), its pin template named after the addon: found there too (QuestiePins), under this name
+local QUESTIE_MODULE = "Questie:HBDPins"
 local PIN_LIBS = {
 	["HereBeDragonsQuestie-Pins-2.0"] = { template = "HereBeDragonsPinsTemplateQuestie", questie = true },
+	[QUESTIE_MODULE] = { template = "HereBeDragonsPins-Questie-WorldMapPin", questie = true },
 	-- Zygor's renamed copy (#20); its waypoint lifted over the art, as Questie's icons are
 	["HereBeDragons-Pins-ZGV"] = { template = "HereBeDragonsPinsTemplateZGV", lift = true },
 }
 local DEFAULT_TEMPLATE = "HereBeDragonsPinsTemplate"
 
--- the pin template a copy registered: its own, or (a copy whose template's name this doesn't know) the
--- one pool here that looks like HereBeDragons', Questie's or not as the copy is (PR #22, Ironship's)
-local function PoolTemplate(spec)
+-- Questie's pins module, once Questie has made it (read from the loader's own list: ImportModule would make
+-- an empty one in a Questie that has none)
+local function QuestiePins()
+	local loader = _G.QuestieLoader
+	local modules = type(loader) == "table" and loader._modules
+	local pins = type(modules) == "table" and modules.HBDPins
+	if type(pins) == "table" and type(pins.worldmapProvider) == "table" then return pins end
+end
+mod.QuestiePins = QuestiePins   -- (PadView.lua)
+
+-- the pin template a copy registered: the one it says it uses (Questie 12.8's worldmapPinTemplate), its
+-- own, or (a copy whose template's name this doesn't know) the one pool here that looks like
+-- HereBeDragons', Questie's or not as the copy is (PR #22, Ironship's)
+local function PoolTemplate(spec, lib)
 	local pools = map.pinPools
 	if not pools then return end
+	local own = lib and lib.worldmapPinTemplate
+	if type(own) == "string" and pools[own] then return own end
 	if pools[spec.template] then return spec.template end
 	local wantQuestie = spec.questie and true or false
 	for template in pairs(pools) do
@@ -506,12 +523,13 @@ local function SetUpPins(name, pins)
 	if type(provider) ~= "table" or type(provider.HandlePin) ~= "function" then return "unknown" end
 	if provider.openmapPins then return "done" end
 	local at = NoteAdds(pins)
-	local template = PoolTemplate(spec)
+	local template = PoolTemplate(spec, pins)
 	if not template then return "waiting" end
 	provider.openmapPins = true
 	pinTemplates[template] = true
 	local count = spec.questie and questie or { placed = 0, ours = 0, moved = 0 }
-	if spec.questie then questie.pins = pins end
+	-- (for /openmap status: Questie's own module before an older copy of it under its old LibStub name, another addon's)
+	if spec.questie and (name == QUESTIE_MODULE or not questie.pins) then questie.pins, questie.template = pins, template end
 	local HandlePin = provider.HandlePin
 	provider.HandlePin = function(self, icon, data, ...)
 		-- (an older Questie's path stretch: not put on the stitched map at all, OpenMap draws the paths
@@ -587,23 +605,30 @@ local function Tell(name)
 	ns:Print(ns.L["A map addon brings its own HereBeDragons (%s), which OpenMap doesn't know: its pins keep the game's own placement."], name)
 end
 
--- every copy of the pins library loaded so far (an addon loaded later: as it loads, or as the map opens).
--- opening: a map opening, counted for one whose pool never comes (OPEN_TRIES)
+local function TakeOver(name, lib, opening)
+	local state = SetUpPins(name, lib)
+	if state == "unknown" then
+		Tell(name)
+	elseif state == "waiting" then
+		pending[name] = (pending[name] or 0) + (opening == true and 1 or 0)
+		if pending[name] > OPEN_TRIES then Tell(name) end
+	else
+		pending[name] = nil
+	end
+end
+
+-- every copy of the pins library loaded so far (an addon loaded later: as it loads, or as the map opens),
+-- and Questie's module. opening: a map opening, counted for one whose pool never comes (OPEN_TRIES)
 local function SetUpAllPins(opening)
-	if not LibStub or not LibStub.IterateLibraries then return end
-	for name, lib in LibStub:IterateLibraries() do
-		if type(name) == "string" and (name:match("^HereBeDragons.*%-Pins%-2%.0$") or PIN_LIBS[name]) then
-			local state = SetUpPins(name, lib)
-			if state == "unknown" then
-				Tell(name)
-			elseif state == "waiting" then
-				pending[name] = (pending[name] or 0) + (opening == true and 1 or 0)
-				if pending[name] > OPEN_TRIES then Tell(name) end
-			else
-				pending[name] = nil
+	if LibStub and LibStub.IterateLibraries then
+		for name, lib in LibStub:IterateLibraries() do
+			if type(name) == "string" and (name:match("^HereBeDragons.*%-Pins%-2%.0$") or PIN_LIBS[name]) then
+				TakeOver(name, lib, opening)
 			end
 		end
 	end
+	local q = QuestiePins()
+	if q then TakeOver(QUESTIE_MODULE, q, opening) end
 end
 
 -- a copy still waiting for its pool (Questie still setting up as the map first opened after a login,
@@ -628,7 +653,7 @@ function mod.QuestieStatus()
 	if not questie.pins then return nil end
 	local registered, shown = 0, 0
 	for _ in pairs(questie.pins.worldmapPins or {}) do registered = registered + 1 end
-	for _ in map:EnumeratePinsByTemplate("HereBeDragonsPinsTemplateQuestie") do shown = shown + 1 end
+	for _ in map:EnumeratePinsByTemplate(questie.template or "HereBeDragonsPinsTemplateQuestie") do shown = shown + 1 end
 	return registered, shown, questie.placed, questie.ours, questie.moved
 end
 
